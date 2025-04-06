@@ -31,7 +31,7 @@ const Dots = (props) => {
     <group {...props}>
       <Text fontSize={0.14} anchorX={"left"} anchorY={"bottom"}>
         {loadingText}
-        <meshBasicMaterial attach="material" color="black" />
+        <meshBasicMaterial attach="material" color="white" />
       </Text>
     </group>
   );
@@ -42,26 +42,67 @@ export const Experience = () => {
   const { cameraZoomed } = useChat();
 
   useEffect(() => {
-    cameraControls.current.setLookAt(0, 2, 5, 0, 1.5, 0);
+    // Initial camera position - slightly zoomed out to fit the chat UI style
+    cameraControls.current.setLookAt(0, 1.8, 4, 0, 1.5, 0);
   }, []);
 
   useEffect(() => {
     if (cameraZoomed) {
-      cameraControls.current.setLookAt(0, 1.5, 1.5, 0, 1.5, 0, true);
+      // Zoomed in for conversation - closer to face
+      cameraControls.current.setLookAt(0, 1.5, 1.8, 0, 1.5, 0, true);
     } else {
-      cameraControls.current.setLookAt(0, 2.2, 5, 0, 1.0, 0, true);
+      // Zoomed out to show full upper body
+      cameraControls.current.setLookAt(0, 1.6, 4, 0, 1.0, 0, true);
     }
   }, [cameraZoomed]);
+  
   return (
     <>
+      <color attach="background" args={["#1a1a1a"]} />
       <CameraControls ref={cameraControls} />
-      <Environment preset="sunset" />
-      {/* Wrapping Dots into Suspense to prevent Blink when Troika/Font is loaded */}
+      <Environment preset="night" />
+      
+      {/* Soft ambient light */}
+      <ambientLight intensity={0.5} />
+      
+      {/* Key light from front */}
+      <directionalLight 
+        position={[2, 2, 5]} 
+        intensity={1.5} 
+        color="#ffffff" 
+      />
+      
+      {/* Fill light from side */}
+      <pointLight
+        position={[-2, 1, 1]}
+        intensity={0.4}
+        color="#b3c6ff"
+      />
+      
+      {/* Rim light for edge definition */}
+      <spotLight
+        position={[0, 3, -5]}
+        intensity={0.5}
+        color="#ffffff"
+        distance={7}
+      />
+      
+      {/* Suspense for Dots loading indicator */}
       <Suspense>
         <Dots position-y={1.75} position-x={-0.02} />
       </Suspense>
+      
       <Avatar />
-      <ContactShadows opacity={0.7} />
+      
+      {/* Subtle shadow for better grounding */}
+      <ContactShadows 
+        opacity={0.5} 
+        scale={10} 
+        blur={1} 
+        far={10} 
+        resolution={256} 
+        color="#000000" 
+      />
     </>
   );
 };
