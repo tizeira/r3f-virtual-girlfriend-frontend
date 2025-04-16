@@ -114,20 +114,37 @@ export function Avatar(props) {
   const { message, onMessagePlayed, chat } = useChat();
 
   const [lipsync, setLipsync] = useState();
+  const [audioRef, setAudioRef] = useState(null);
+  const [lastVisemeTime, setLastVisemeTime] = useState(0);
 
   useEffect(() => {
     console.log(message);
     if (!message) {
       setAnimation("Idle");
+      if (audioRef) {
+        audioRef.pause();
+        audioRef.currentTime = 0;
+      }
       return;
     }
-    setAnimation(message.animation);
-    setFacialExpression(message.facialExpression);
-    setLipsync(message.lipsync);
-    const audio = new Audio("data:audio/mp3;base64," + message.audio);
-    audio.play();
-    setAudio(audio);
-    audio.onended = onMessagePlayed;
+    setAnimation(message.animation || "Talking_0");
+    setFacialExpression(message.facialExpression || "default");
+    
+    if (message.lipsync) {
+      setLipsync(message.lipsync);
+      setLastVisemeTime(0);
+    }
+
+    if (message.audio) {
+      const audio = new Audio("data:audio/mp3;base64," + message.audio);
+      audio.onended = () => {
+        onMessagePlayed();
+        setAnimation("Idle");
+        setLipsync(null);
+      };
+      setAudioRef(audio);
+      audio.play();
+    }
   }, [message]);
 
   const { animations } = useGLTF("/models/animations.glb");
@@ -179,11 +196,12 @@ export function Avatar(props) {
   const [audio, setAudio] = useState();
 
   useFrame(() => {
-    !setupMode &&
+    if (!setupMode) {
+      // Gestión de expresiones faciales
       Object.keys(nodes.EyeLeft.morphTargetDictionary).forEach((key) => {
         const mapping = facialExpressions[facialExpression];
         if (key === "eyeBlinkLeft" || key === "eyeBlinkRight") {
-          return; // eyes wink/blink are handled separately
+          return;
         }
         if (mapping && mapping[key]) {
           lerpMorphTarget(key, mapping[key], 0.1);
@@ -192,36 +210,37 @@ export function Avatar(props) {
         }
       });
 
-    lerpMorphTarget("eyeBlinkLeft", blink || winkLeft ? 1 : 0, 0.5);
-    lerpMorphTarget("eyeBlinkRight", blink || winkRight ? 1 : 0, 0.5);
+      // Gestión de parpadeo
+      lerpMorphTarget("eyeBlinkLeft", blink || winkLeft ? 1 : 0, 0.5);
+      lerpMorphTarget("eyeBlinkRight", blink || winkRight ? 1 : 0, 0.5);
 
-    // LIPSYNC
-    if (setupMode) {
-      return;
-    }
+      // Sistema de lipsync mejorado
+      const appliedMorphTargets = [];
+      if (audioRef && lipsync?.mouthCues) {
+        const currentTime = audioRef.currentTime;
+        
+        // Encontrar el visema actual basado en el tiempo de audio
+        const currentCue = lipsync.mouthCues.find(
+          cue => currentTime >= cue.start && currentTime <= cue.end
+        );
 
-    const appliedMorphTargets = [];
-    if (message && lipsync) {
-      const currentAudioTime = audio.currentTime;
-      for (let i = 0; i < lipsync.mouthCues.length; i++) {
-        const mouthCue = lipsync.mouthCues[i];
-        if (
-          currentAudioTime >= mouthCue.start &&
-          currentAudioTime <= mouthCue.end
-        ) {
-          appliedMorphTargets.push(corresponding[mouthCue.value]);
-          lerpMorphTarget(corresponding[mouthCue.value], 1, 0.2);
-          break;
+        if (currentCue) {
+          const visemeKey = corresponding[currentCue.value];
+          if (visemeKey) {
+            appliedMorphTargets.push(visemeKey);
+            lerpMorphTarget(visemeKey, 1, 0.2);
+            setLastVisemeTime(currentTime);
+          }
         }
       }
-    }
 
-    Object.values(corresponding).forEach((value) => {
-      if (appliedMorphTargets.includes(value)) {
-        return;
-      }
-      lerpMorphTarget(value, 0, 0.1);
-    });
+      // Resetear visemas no utilizados
+      Object.values(corresponding).forEach((visemeKey) => {
+        if (!appliedMorphTargets.includes(visemeKey)) {
+          lerpMorphTarget(visemeKey, 0, 0.1);
+        }
+      });
+    }
   });
 
   useControls("FacialExpressions", {
