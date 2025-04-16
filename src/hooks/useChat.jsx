@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { Conversation } from '@11labs/client';
 
 const backendUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const ELEVENLABS_AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID;
 
 const ChatContext = createContext();
 
@@ -12,6 +14,8 @@ export const ChatProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [cameraZoomed, setCameraZoomed] = useState(false);
+  const [conversation, setConversation] = useState(null);
+  const [isCallActive, setIsCallActive] = useState(false);
 
   const chat = async (userMessage) => {
     setLoading(true);
@@ -73,6 +77,49 @@ export const ChatProvider = ({ children }) => {
     );
   };
 
+  const startVoiceCall = async () => {
+    if (isCallActive || conversation) return; // Prevenir múltiples llamadas
+
+    try {
+      // Solicitar permiso para el micrófono
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const newConversation = await Conversation.startSession({
+        agentId: ELEVENLABS_AGENT_ID,
+        onConnect: () => {
+          setIsCallActive(true);
+          console.log("Conectado a ElevenLabs");
+        },
+        onDisconnect: () => {
+          setIsCallActive(false);
+          setConversation(null);
+          console.log("Desconectado de ElevenLabs");
+        },
+        onError: (error) => {
+          console.error("Error en la conversación:", error);
+          setIsCallActive(false);
+          setConversation(null);
+        },
+        onModeChange: (mode) => {
+          console.log("Modo de conversación:", mode.mode);
+        },
+      });
+
+      setConversation(newConversation);
+    } catch (error) {
+      console.error("Error al iniciar la conversación:", error);
+      setIsCallActive(false);
+    }
+  };
+
+  const endVoiceCall = async () => {
+    if (conversation) {
+      await conversation.endSession();
+      setConversation(null);
+      setIsCallActive(false);
+    }
+  };
+
   useEffect(() => {
     if (messages.length > 0) {
       setMessage(messages[0]);
@@ -91,7 +138,10 @@ export const ChatProvider = ({ children }) => {
         cameraZoomed,
         setCameraZoomed,
         chatHistory,
-        toggleLike
+        toggleLike,
+        startVoiceCall,
+        endVoiceCall,
+        isCallActive
       }}
     >
       {children}
