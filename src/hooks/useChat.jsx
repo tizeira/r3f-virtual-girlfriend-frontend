@@ -97,60 +97,50 @@ export const ChatProvider = ({ children }) => {
   };
 
   const generateVisemes = async (audioBuffer, text) => {
-    const analyzer = new Tone.Analyser('waveform', 1024);
-    const player = new Tone.Player().connect(analyzer);
-    
-    // Convertir el mensaje en fonemas básicos
-    const phonemes = text.toLowerCase().split('').map(letter => {
-      for (const [key, value] of Object.entries(phonemeToViseme)) {
-        if (key === letter) return value;
-      }
-      return phonemeToViseme.default;
-    });
-
-    // Crear cues de lipsync basados en el análisis de audio
-    const lipsyncData = {
-      mouthCues: []
-    };
-
-    await Tone.start();
-    player.buffer = audioBuffer;
-    player.start();
-
-    const interval = 0.1; // Intervalo de actualización en segundos
-    let currentTime = 0;
-
-    while (currentTime < player.buffer.duration) {
-      const waveform = analyzer.getValue();
-      const amplitude = Math.max(...waveform.map(Math.abs));
-      
-      // Seleccionar visema basado en amplitud y fonemas
-      const phonemeIndex = Math.floor((currentTime / player.buffer.duration) * phonemes.length);
-      const viseme = amplitude > 0.1 ? phonemes[phonemeIndex] || 'X' : 'X';
-
-      lipsyncData.mouthCues.push({
-        value: viseme,
-        start: currentTime,
-        end: currentTime + interval
+    try {
+      // Convertir el mensaje en fonemas básicos
+      const phonemes = text.toLowerCase().split('').map(letter => {
+        for (const [key, value] of Object.entries(phonemeToViseme)) {
+          if (key === letter) return value;
+        }
+        return phonemeToViseme.default;
       });
 
-      currentTime += interval;
-      await new Promise(resolve => setTimeout(resolve, interval * 1000));
+      // Crear cues de lipsync basados en la duración del audio
+      const lipsyncData = {
+        mouthCues: []
+      };
+
+      const interval = 0.05; // Intervalo más corto para mejor sincronización
+      const duration = audioBuffer.duration;
+      let currentTime = 0;
+
+      while (currentTime < duration) {
+        const phonemeIndex = Math.floor((currentTime / duration) * phonemes.length);
+        const viseme = phonemes[phonemeIndex] || 'X';
+
+        lipsyncData.mouthCues.push({
+          value: viseme,
+          start: currentTime,
+          end: currentTime + interval
+        });
+
+        currentTime += interval;
+      }
+
+      return lipsyncData;
+    } catch (error) {
+      console.error("Error generando visemas:", error);
+      return null;
     }
-
-    player.stop();
-    player.dispose();
-    analyzer.dispose();
-
-    return lipsyncData;
   };
 
   const startVoiceCall = async () => {
-    if (isCallActive || conversation) return; // Prevenir múltiples llamadas
+    if (isCallActive || conversation) return;
 
     try {
-      // Solicitar permiso para el micrófono
       await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
       const newConversation = await Conversation.startSession({
         agentId: ELEVENLABS_AGENT_ID,
@@ -171,18 +161,27 @@ export const ChatProvider = ({ children }) => {
         onModeChange: async (mode) => {
           console.log("Modo de conversación:", mode.mode);
           if (mode.mode === 'speaking') {
-            // Cuando la IA está hablando, generar lipsync
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const audioBuffer = await audioContext.decodeAudioData(mode.audio);
-            const lipsyncData = await generateVisemes(audioBuffer, mode.text);
-            
-            // Actualizar el mensaje actual con los datos de lipsync
-            setMessage(prev => ({
-              ...prev,
-              lipsync: lipsyncData,
-              audio: mode.audio,
-              text: mode.text
-            }));
+            try {
+              // Convertir el ArrayBuffer a base64
+              const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(mode.audio)));
+              
+              // Generar lipsync
+              const audioBuffer = await audioContext.decodeAudioData(mode.audio.slice(0));
+              const lipsyncData = await generateVisemes(audioBuffer, mode.text);
+              
+              // Actualizar el mensaje
+              setMessage({
+                text: mode.text,
+                animation: "Talking_0",
+                facialExpression: "default",
+                audio: audioBase64,
+                lipsync: lipsyncData
+              });
+            } catch (error) {
+              console.error("Error procesando audio:", error);
+            }
+          } else if (mode.mode === 'listening') {
+            setMessage(null);
           }
         },
       });

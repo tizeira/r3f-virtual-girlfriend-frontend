@@ -111,40 +111,73 @@ export function Avatar(props) {
     "/models/64f1a714fe61576b46f27ca2.glb"
   );
 
-  const { message, onMessagePlayed, chat } = useChat();
-
-  const [lipsync, setLipsync] = useState();
-  const [audioRef, setAudioRef] = useState(null);
-  const [lastVisemeTime, setLastVisemeTime] = useState(0);
+  const { message, onMessagePlayed } = useChat();
+  const [lipsync, setLipsync] = useState(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const frameId = useRef(null);
 
   useEffect(() => {
-    console.log(message);
     if (!message) {
       setAnimation("Idle");
-      if (audioRef) {
-        audioRef.pause();
-        audioRef.currentTime = 0;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
       }
+      setLipsync(null);
       return;
     }
-    setAnimation(message.animation || "Talking_0");
-    setFacialExpression(message.facialExpression || "default");
-    
-    if (message.lipsync) {
-      setLipsync(message.lipsync);
-      setLastVisemeTime(0);
+
+    const setupAudio = async () => {
+      try {
+        // Limpiar audio anterior
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
+
+        // Configurar nuevo audio
+        const audio = new Audio("data:audio/mp3;base64," + message.audio);
+        audio.onended = () => {
+          onMessagePlayed();
+          setAnimation("Idle");
+          setLipsync(null);
+        };
+
+        // Configurar el seguimiento del tiempo de audio
+        const updateTime = () => {
+          setCurrentTime(audio.currentTime);
+          frameId.current = requestAnimationFrame(updateTime);
+        };
+
+        audio.onplay = () => {
+          frameId.current = requestAnimationFrame(updateTime);
+        };
+
+        audioRef.current = audio;
+        setLipsync(message.lipsync);
+        setAnimation(message.animation || "Talking_0");
+        setFacialExpression(message.facialExpression || "default");
+        
+        await audio.play();
+      } catch (error) {
+        console.error("Error reproduciendo audio:", error);
+      }
+    };
+
+    if (message.audio && message.lipsync) {
+      setupAudio();
     }
 
-    if (message.audio) {
-      const audio = new Audio("data:audio/mp3;base64," + message.audio);
-      audio.onended = () => {
-        onMessagePlayed();
-        setAnimation("Idle");
-        setLipsync(null);
-      };
-      setAudioRef(audio);
-      audio.play();
-    }
+    return () => {
+      if (frameId.current) {
+        cancelAnimationFrame(frameId.current);
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
   }, [message]);
 
   const { animations } = useGLTF("/models/animations.glb");
@@ -216,10 +249,8 @@ export function Avatar(props) {
 
       // Sistema de lipsync mejorado
       const appliedMorphTargets = [];
-      if (audioRef && lipsync?.mouthCues) {
-        const currentTime = audioRef.currentTime;
-        
-        // Encontrar el visema actual basado en el tiempo de audio
+      
+      if (audioRef.current && lipsync?.mouthCues) {
         const currentCue = lipsync.mouthCues.find(
           cue => currentTime >= cue.start && currentTime <= cue.end
         );
@@ -229,7 +260,6 @@ export function Avatar(props) {
           if (visemeKey) {
             appliedMorphTargets.push(visemeKey);
             lerpMorphTarget(visemeKey, 1, 0.2);
-            setLastVisemeTime(currentTime);
           }
         }
       }
